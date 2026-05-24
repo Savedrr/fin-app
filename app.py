@@ -495,6 +495,12 @@ def execute_action(result):
     result['success'] = True
     return result
 
-if __name__ == '__main__':
+# Inicializa o banco sempre (funciona com gunicorn e python app.py)
+with app.app_context():
     init_db()
+
+if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
+ 
+ 
