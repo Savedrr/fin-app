@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Metrics Grid -->
+<div class="metrics-grid" id="metricsGrid">
+  <div class="metric-card green">
+    <div class="metric-icon">💰</div>
+    <div class="metric-label">Total Recebido</div>
+    <div class="metric-value green" id="m-income">—</div>
+    <div class="metric-sub">Receitas do mês</div>
+  </div>
+  <div class="metric-card red">
+    <div class="metric-icon">📤</div>
+    <div class="metric-label">Total Gasto</div>
+    <div class="metric-value red" id="m-spent">—</div>
+    <div class="metric-sub">Variável + fixo</div>
+  </div>
+  <div class="metric-card blue">
+    <div class="metric-icon">📄</div>
+    <div class="metric-label">Contas Fixas</div>
+    <div class="metric-value blue" id="m-fixed">—</div>
+    <div class="metric-sub">Recorrente mensal</div>
+  </div>
+  <div class="metric-card amber">
+    <div class="metric-icon">📊</div>
+    <div class="metric-label">Gastos Variáveis</div>
+    <div class="metric-value amber" id="m-var">—</div>
+    <div class="metric-sub">Lançamentos livres</div>
+  </div>
+  <div class="metric-card purple" style="grid-column: span 2;">
+    <div class="metric-label">Saldo Disponível</div>
+    <div class="metric-value" id="m-balance">—</div>
+    <div class="metric-sub" id="m-committed">Comprometimento: —%</div>
+    <div class="progress-wrap" style="margin-top:10px;">
+      <div class="progress-track">
+        <div class="progress-fill" id="m-progress" style="width:0%;background:var(--green);"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Alerts -->
+<div class="alerts-grid" id="alertsGrid"></div>
+
+<!-- Charts + Categories -->
+<div class="charts-grid">
+  <div class="card">
+    <div class="card-title">Gastos por Categoria</div>
+    <div class="cat-bars" id="catBars">
+      <div class="no-data">Carregando...</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Evolução dos Últimos 6 Meses</div>
+    <div class="chart-container">
+      <canvas id="evolutionChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Transactions -->
+<div class="card mt-2">
+  <div class="section-header">
+    <div class="section-title">Últimos Lançamentos</div>
+    <a href="/lancamentos" class="btn btn-secondary btn-sm">Ver todos</a>
+  </div>
+  <div class="tx-list" id="recentList">
+    <div class="no-data">Carregando...</div>
+  </div>
+</div>
+
+<!-- Fixed Bills Summary -->
+<div class="card mt-2">
+  <div class="section-header">
+    <div class="section-title">Contas Fixas</div>
+    <a href="/fixas" class="btn btn-secondary btn-sm">Gerenciar</a>
+  </div>
+  <div class="tx-list" id="billsList">
+    <div class="no-data">Carregando...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let evolutionChart = null;
+
+async function loadDashboard() {
+  const data = await apiGet(`/api/dashboard?month=${AppState.month}&year=${AppState.year}`);
+  if (!data) return;
+
+  // Metrics
+  document.getElementById('m-income').textContent = fmtBRL(data.total_income);
+  document.getElementById('m-spent').textContent = fmtBRL(data.total_spent);
+  document.getElementById('m-fixed').textContent = fmtBRL(data.total_fixed);
+  document.getElementById('m-var').textContent = fmtBRL(data.total_expenses);
+
+  const balance = data.balance;
+  const balEl = document.getElementById('m-balance');
+  balEl.textContent = fmtBRL(balance);
+  balEl.className = 'metric-value ' + (balance >= 0 ? 'green' : 'red');
+
+  const pct = Math.min(data.pct_committed, 100);
+  document.getElementById('m-committed').textContent = `Comprometimento: ${data.pct_committed}%`;
+  const prog = document.getElementById('m-progress');
+  prog.style.width = pct + '%';
+  prog.style.background = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--amber)' : 'var(--green)';
+
+  // Alerts
+  const alertsGrid = document.getElementById('alertsGrid');
+  alertsGrid.innerHTML = data.alerts.map(a =>
+    `<div class="alert ${a.type}">
+      <span class="alert-icon">${a.icon}</span>
+      <span>${a.text}</span>
+    </div>`
+  ).join('');
+
+  // Category Bars
+  const catBars = document.getElementById('catBars');
+  if (data.categories.length === 0) {
+    catBars.innerHTML = '<div class="no-data">Nenhum gasto registrado neste mês.</div>';
+  } else {
+    const max = data.categories[0]?.total || 1;
+    catBars.innerHTML = data.categories.slice(0,8).map(c => {
+      const pctBar = Math.round(c.total / max * 100);
+      return `<div class="cat-bar-row">
+        <div class="cat-bar-label">${c.icon} ${c.name}</div>
+        <div class="cat-bar-track">
+          <div class="cat-bar-fill" style="width:${pctBar}%;background:${c.color};"></div>
+        </div>
+        <div class="cat-bar-val">${fmtBRL(c.total)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Recent Transactions
+  const recentList = document.getElementById('recentList');
+  if (data.recent_transactions.length === 0) {
+    recentList.innerHTML = '<div class="no-data">Nenhum lançamento ainda. Use o Chat IA para começar! 🤖</div>';
+  } else {
+    recentList.innerHTML = data.recent_transactions.slice(0,8).map(t => {
+      const cat = t.category || { icon: '💰', color: '#888', name: 'Outros' };
+      const isIncome = t.transaction_type === 'income';
+      return `<div class="tx-item">
+        <div class="tx-icon" style="background:${cat.color}22;">${cat.icon}</div>
+        <div class="tx-info">
+          <div class="tx-desc">${t.description}</div>
+          <div class="tx-meta">${t.user?.name || '—'} · ${fmtShortDate(t.transaction_date)}</div>
+        </div>
+        <div class="tx-amount ${isIncome ? 'income' : 'expense'}">${isIncome ? '+' : '−'}${fmtBRL(t.amount)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Bills List
+  const billsList = document.getElementById('billsList');
+  if (data.fixed_bills.length === 0) {
+    billsList.innerHTML = '<div class="no-data">Nenhuma conta fixa cadastrada.</div>';
+  } else {
+    billsList.innerHTML = data.fixed_bills.map(b =>
+      `<div class="tx-item">
+        <div class="tx-icon" style="background:var(--bg-4);">${b.icon}</div>
+        <div class="tx-info">
+          <div class="tx-desc">${b.name}</div>
+          <div class="tx-meta">Vence dia ${b.due_day} · ${b.category}</div>
+        </div>
+        <span class="bill-status ${b.is_paid ? 'paid' : 'pending'}" style="margin-right:8px;">${b.is_paid ? '✓ Paga' : 'Pendente'}</span>
+        <div class="tx-amount expense">−${fmtBRL(b.amount)}</div>
+      </div>`
+    ).join('');
+  }
+
+  // Evolution Chart
+  await loadEvolutionChart();
+}
+
+async function loadEvolutionChart() {
+  const data = await apiGet('/api/reports/monthly');
+  if (!data) return;
+
+  const ctx = document.getElementById('evolutionChart');
+  if (evolutionChart) evolutionChart.destroy();
+
+  evolutionChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.label),
+      datasets: [
+        {
+          label: 'Receitas',
+          data: data.map(d => d.income),
+          backgroundColor: 'rgba(29,185,118,0.7)',
+          borderRadius: 6,
+        },
+        {
+          label: 'Gastos',
+          data: data.map(d => d.expenses),
+          backgroundColor: 'rgba(239,68,68,0.7)',
+          borderRadius: 6,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 12 } } },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { callback: v => 'R$' + (v/1000).toFixed(1) + 'k' }
+        }
+      }
+    }
+  });
+}
+
+function onMonthChange() { loadDashboard(); }
+
+loadDashboard();
+</script>
+{% endblock %}

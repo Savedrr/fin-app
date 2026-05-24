@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}Contas Fixas{% endblock %}
+{% block page_title %}Contas Fixas{% endblock %}
+
+{% block content %}
+<!-- Summary Bar -->
+<div class="metrics-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.5rem;">
+  <div class="metric-card red">
+    <div class="metric-label">Total Fixo Mensal</div>
+    <div class="metric-value red" id="total-fixas">—</div>
+  </div>
+  <div class="metric-card amber">
+    <div class="metric-label">Contas Pendentes</div>
+    <div class="metric-value amber" id="total-pending">—</div>
+  </div>
+  <div class="metric-card green">
+    <div class="metric-label">Contas Pagas</div>
+    <div class="metric-value green" id="total-paid">—</div>
+  </div>
+</div>
+
+<!-- Add Form -->
+<div class="card mb-2">
+  <div class="card-title">Adicionar Conta Fixa</div>
+  <div class="form-row">
+    <div class="form-group" style="flex:2;min-width:180px;">
+      <label class="form-label">Nome da conta</label>
+      <input type="text" class="form-input" id="f-name" placeholder="Ex: Aluguel, Internet, Luz...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Valor (R$)</label>
+      <input type="number" class="form-input" id="f-val" placeholder="0,00" min="0" step="0.01">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Vencimento</label>
+      <select class="form-select" id="f-due">
+        <option value="1">Dia 1</option>
+        <option value="5">Dia 5</option>
+        <option value="10">Dia 10</option>
+        <option value="15">Dia 15</option>
+        <option value="20">Dia 20</option>
+        <option value="25">Dia 25</option>
+        <option value="28">Dia 28</option>
+        <option value="30">Dia 30</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Categoria</label>
+      <select class="form-select" id="f-cat">
+        <option value="Casa">🏠 Casa</option>
+        <option value="Transporte">🚗 Transporte</option>
+        <option value="Saúde">💊 Saúde</option>
+        <option value="Educação">📚 Educação</option>
+        <option value="Lazer">🎬 Lazer</option>
+        <option value="Alimentação">🍽️ Alimentação</option>
+        <option value="Outros">💰 Outros</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ícone</label>
+      <select class="form-select" id="f-icon">
+        <option value="🏠">🏠 Casa</option>
+        <option value="📶">📶 Internet</option>
+        <option value="⚡">⚡ Energia</option>
+        <option value="💧">💧 Água</option>
+        <option value="🎓">🎓 Escola</option>
+        <option value="🏋️">🏋️ Academia</option>
+        <option value="🚗">🚗 Carro</option>
+        <option value="💳">💳 Cartão</option>
+        <option value="📱">📱 Celular</option>
+        <option value="🎬">🎬 Streaming</option>
+        <option value="🔥">🔥 Gás</option>
+        <option value="📄">📄 Outros</option>
+      </select>
+    </div>
+    <div class="form-group" style="justify-content:flex-end;">
+      <button class="btn btn-primary" onclick="addBill()" style="width:100%;">+ Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bills Grid -->
+<div class="bills-grid" id="billsGrid">
+  <div class="no-data" style="grid-column:1/-1;">Carregando...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let bills = [];
+
+async function loadBills() {
+  bills = await apiGet('/api/fixed-bills') || [];
+  renderBills();
+  updateSummary();
+}
+
+function updateSummary() {
+  const total = bills.reduce((a, b) => a + b.amount, 0);
+  const paid = bills.filter(b => b.is_paid);
+  const pending = bills.filter(b => !b.is_paid);
+  document.getElementById('total-fixas').textContent = fmtBRL(total);
+  document.getElementById('total-pending').textContent = pending.length + ' conta' + (pending.length !== 1 ? 's' : '');
+  document.getElementById('total-paid').textContent = paid.length + ' conta' + (paid.length !== 1 ? 's' : '');
+}
+
+function renderBills() {
+  const grid = document.getElementById('billsGrid');
+  if (bills.length === 0) {
+    grid.innerHTML = '<div class="no-data" style="grid-column:1/-1;">Nenhuma conta fixa cadastrada. Adicione acima ou use o Chat IA!</div>';
+    return;
+  }
+
+  // Sort by due day
+  const sorted = [...bills].sort((a, b) => a.due_day - b.due_day);
+
+  grid.innerHTML = sorted.map(b => `
+    <div class="bill-card ${b.is_paid ? 'paid' : ''}" id="bill-${b.id}">
+      <div class="bill-header">
+        <div class="bill-icon">${b.icon}</div>
+        <div>
+          <div class="bill-name">${b.name}</div>
+          <div class="bill-due">Vence dia ${b.due_day} · ${b.category}</div>
+        </div>
+      </div>
+      <div class="bill-amount">${fmtBRL(b.amount)}</div>
+      <div class="bill-footer">
+        <span class="bill-status ${b.is_paid ? 'paid' : 'pending'}">${b.is_paid ? '✓ Paga' : '⏳ Pendente'}</span>
+        <div class="bill-actions">
+          <button class="btn btn-secondary btn-sm btn-icon" onclick="togglePaid(${b.id}, ${b.is_paid})" title="${b.is_paid ? 'Marcar pendente' : 'Marcar paga'}">
+            ${b.is_paid ? '↩' : '✓'}
+          </button>
+          <button class="btn btn-secondary btn-sm btn-icon" onclick="editBill(${b.id})" title="Editar">✏️</button>
+          <button class="btn btn-danger btn-sm btn-icon" onclick="deleteBill(${b.id})" title="Excluir">✕</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addBill() {
+  const name = document.getElementById('f-name').value.trim();
+  const val = parseFloat(document.getElementById('f-val').value);
+  if (!name || isNaN(val) || val <= 0) return toast('Preencha nome e valor', 'error');
+
+  const res = await apiPost('/api/fixed-bills', {
+    name,
+    amount: val,
+    due_day: parseInt(document.getElementById('f-due').value),
+    category: document.getElementById('f-cat').value,
+    icon: document.getElementById('f-icon').value,
+  });
+
+  if (res?.success) {
+    toast('Conta fixa adicionada!');
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-val').value = '';
+    await loadBills();
+  } else {
+    toast('Erro ao salvar', 'error');
+  }
+}
+
+async function togglePaid(id, currentPaid) {
+  const res = await apiPut(`/api/fixed-bills/${id}`, { is_paid: !currentPaid });
+  if (res?.success) {
+    toast(currentPaid ? 'Marcada como pendente' : '✓ Marcada como paga!');
+    await loadBills();
+  }
+}
+
+function editBill(id) {
+  const b = bills.find(x => x.id === id);
+  if (!b) return;
+
+  const backdrop = showModal(`
+    <div class="modal-title">Editar Conta Fixa</div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group">
+        <label class="form-label">Nome</label>
+        <input type="text" class="form-input" id="edit-name" value="${b.name}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Valor (R$)</label>
+        <input type="number" class="form-input" id="edit-val" value="${b.amount}" step="0.01">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dia de Vencimento</label>
+        <input type="number" class="form-input" id="edit-due" value="${b.due_day}" min="1" max="31">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEdit(${id})">Salvar</button>
+    </div>
+  `);
+}
+
+async function saveEdit(id) {
+  const name = document.getElementById('edit-name').value.trim();
+  const val = parseFloat(document.getElementById('edit-val').value);
+  const due = parseInt(document.getElementById('edit-due').value);
+  if (!name || isNaN(val)) return toast('Dados inválidos', 'error');
+
+  const res = await apiPut(`/api/fixed-bills/${id}`, { name, amount: val, due_day: due });
+  if (res?.success) {
+    toast('Conta atualizada!');
+    closeModal();
+    await loadBills();
+  }
+}
+
+async function deleteBill(id) {
+  if (!confirm('Excluir esta conta fixa?')) return;
+  const res = await apiDelete(`/api/fixed-bills/${id}`);
+  if (res?.success) {
+    toast('Conta excluída');
+    await loadBills();
+  }
+}
+
+loadBills();
+</script>
+{% endblock %}

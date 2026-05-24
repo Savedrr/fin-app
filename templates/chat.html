@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Chat IA{% endblock %}
+{% block page_title %}Chat com IA Financeira{% endblock %}
+
+{% block content %}
+<div class="chat-layout">
+  <!-- Suggestions -->
+  <div class="chat-suggestions" id="chatSugs">
+    <span class="chat-sug" onclick="useSug(this)">Gastei 50 reais no mercado</span>
+    <span class="chat-sug" onclick="useSug(this)">Recebi meu salário de 3000 reais</span>
+    <span class="chat-sug" onclick="useSug(this)">Minha esposa gastou 80 na farmácia</span>
+    <span class="chat-sug" onclick="useSug(this)">Paguei 120 de internet como conta fixa</span>
+    <span class="chat-sug" onclick="useSug(this)">Quanto gastamos este mês?</span>
+    <span class="chat-sug" onclick="useSug(this)">Onde posso economizar?</span>
+    <span class="chat-sug" onclick="useSug(this)">Hoje gastei 25 no almoço</span>
+    <span class="chat-sug" onclick="useSug(this)">Coloca 1200 de aluguel como conta fixa vence dia 5</span>
+  </div>
+
+  <!-- Messages -->
+  <div class="chat-messages" id="chatMessages">
+    <div class="msg-wrap bot">
+      <div class="msg-avatar" style="background:#1D9E75;">🤖</div>
+      <div class="msg-bubble">
+        Olá! Sou seu assistente financeiro pessoal 👋<br><br>
+        Pode me dizer o que você gastou, recebeu ou quer registrar. Fale naturalmente, como:<br><br>
+        <em>"Gastei 45 reais no supermercado"</em><br>
+        <em>"Recebi 2500 de salário"</em><br>
+        <em>"Quanto gastamos este mês?"</em><br><br>
+        Vou registrar automaticamente e manter seu controle em dia! 💚
+      </div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="chat-input-area">
+    <input type="text" class="chat-input" id="chatInput"
+      placeholder="Digite o que gastou ou recebeu..."
+      onkeydown="if(event.key==='Enter' && !event.shiftKey) sendChat()">
+    <button class="chat-send-btn" id="chatSendBtn" onclick="sendChat()">Enviar ↗</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let chatHistory = [];
+const msgs = document.getElementById('chatMessages');
+const input = document.getElementById('chatInput');
+const sendBtn = document.getElementById('chatSendBtn');
+
+function useSug(el) {
+  input.value = el.textContent;
+  input.focus();
+}
+
+function addMsg(type, text, saved=null) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-wrap ' + type;
+
+  const avatarColor = type === 'bot' ? '#1D9E75' : '#185FA5';
+  const avatarContent = type === 'bot' ? '🤖' : '👤';
+
+  let savedHtml = '';
+  if (saved) {
+    savedHtml = `<div class="msg-saved">✓ ${saved}</div>`;
+  }
+
+  wrap.innerHTML = `
+    <div class="msg-avatar" style="background:${avatarColor};">${avatarContent}</div>
+    <div>
+      <div class="msg-bubble">${text}</div>
+      ${savedHtml}
+    </div>
+  `;
+  msgs.appendChild(wrap);
+  msgs.scrollTop = msgs.scrollHeight;
+  return wrap;
+}
+
+function addLoading() {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-wrap bot loading';
+  wrap.id = 'loading-msg';
+  wrap.innerHTML = `
+    <div class="msg-avatar" style="background:#1D9E75;">🤖</div>
+    <div class="msg-bubble" style="display:flex;align-items:center;gap:8px;">
+      <div class="spinner"></div> Analisando...
+    </div>
+  `;
+  msgs.appendChild(wrap);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removeLoading() {
+  document.getElementById('loading-msg')?.remove();
+}
+
+async function sendChat() {
+  const text = input.value.trim();
+  if (!text || sendBtn.disabled) return;
+
+  input.value = '';
+  sendBtn.disabled = true;
+  document.getElementById('chatSugs').style.display = 'none';
+
+  addMsg('user', text);
+  addLoading();
+
+  try {
+    const res = await apiPost('/api/chat', { message: text, history: chatHistory });
+    removeLoading();
+
+    if (!res) {
+      addMsg('bot', 'Erro de conexão. Tente novamente.');
+      sendBtn.disabled = false;
+      return;
+    }
+
+    let savedLabel = null;
+    if (res.saved) {
+      if (res.action === 'save_transaction') {
+        const tx = res.transaction;
+        const amount = tx ? fmtBRL(tx.amount) : '';
+        savedLabel = `Lançamento salvo: ${amount}`;
+      } else if (res.action === 'save_income') {
+        savedLabel = 'Receita registrada com sucesso!';
+      } else if (res.action === 'save_fixed_bill') {
+        savedLabel = 'Conta fixa cadastrada!';
+      }
+    }
+
+    addMsg('bot', res.message || 'Entendido!', savedLabel);
+
+    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push({ role: 'assistant', content: res.message || '' });
+    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+
+  } catch (e) {
+    removeLoading();
+    addMsg('bot', '⚠️ Erro ao processar. Verifique se a ANTHROPIC_API_KEY está configurada no arquivo .env');
+  }
+
+  sendBtn.disabled = false;
+  input.focus();
+}
+</script>
+{% endblock %}

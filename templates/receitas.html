@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Receitas{% endblock %}
+{% block page_title %}Receitas{% endblock %}
+
+{% block content %}
+<!-- Metrics -->
+<div class="metrics-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.5rem;">
+  <div class="metric-card green">
+    <div class="metric-label">Total Recebido (Mês)</div>
+    <div class="metric-value green" id="r-total">—</div>
+    <div class="metric-sub" id="r-count">0 receitas</div>
+  </div>
+  <div class="metric-card blue">
+    <div class="metric-label">Média Mensal</div>
+    <div class="metric-value blue" id="r-avg">—</div>
+    <div class="metric-sub">Baseado nos lançamentos</div>
+  </div>
+  <div class="metric-card amber">
+    <div class="metric-label">Maior Receita</div>
+    <div class="metric-value amber" id="r-max">—</div>
+    <div class="metric-sub" id="r-max-desc">—</div>
+  </div>
+</div>
+
+<!-- Add Form -->
+<div class="card mb-2">
+  <div class="card-title">Registrar Receita</div>
+  <div class="form-row">
+    <div class="form-group" style="flex:2;min-width:180px;">
+      <label class="form-label">Descrição</label>
+      <input type="text" class="form-input" id="r-desc" placeholder="Ex: Salário, Freelance, Bônus...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Valor (R$)</label>
+      <input type="number" class="form-input" id="r-val" placeholder="0,00" min="0" step="0.01">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Média Mensal (R$)</label>
+      <input type="number" class="form-input" id="r-avg-in" placeholder="Opcional" min="0" step="0.01">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Fonte</label>
+      <select class="form-select" id="r-source">
+        <option value="Salário">💼 Salário</option>
+        <option value="Freelance">💻 Freelance</option>
+        <option value="Renda Extra">💡 Renda Extra</option>
+        <option value="Vale">🎫 Vale</option>
+        <option value="Pix Recebido">📲 Pix Recebido</option>
+        <option value="Investimentos">📈 Investimentos</option>
+        <option value="Outros">💰 Outros</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quem recebeu</label>
+      <select class="form-select" id="r-who"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Data</label>
+      <input type="date" class="form-input" id="r-date">
+    </div>
+    <div class="form-group" style="justify-content:flex-end;">
+      <button class="btn btn-primary" onclick="addIncome()" style="width:100%;">+ Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Income List -->
+<div class="card">
+  <div class="section-header">
+    <div class="section-title">Receitas do Mês</div>
+  </div>
+  <div class="tx-list" id="incomeList">
+    <div class="no-data">Carregando...</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let incomes = [];
+
+async function init() {
+  document.getElementById('r-date').value = new Date().toISOString().split('T')[0];
+
+  const users = await apiGet('/api/users') || [];
+  const whoSelect = document.getElementById('r-who');
+  users.forEach(u => {
+    whoSelect.innerHTML += `<option value="${u.id}">${u.name}</option>`;
+  });
+
+  await loadIncomes();
+}
+
+async function loadIncomes() {
+  incomes = await apiGet(`/api/incomes?month=${AppState.month}&year=${AppState.year}`) || [];
+  renderIncomes();
+  updateMetrics();
+}
+
+function updateMetrics() {
+  const total = incomes.reduce((a, i) => a + i.amount, 0);
+  const avg = incomes.length > 0 ? incomes.reduce((a, i) => a + (i.monthly_average || i.amount), 0) : 0;
+  const maxInc = incomes.reduce((best, i) => i.amount > (best?.amount || 0) ? i : best, null);
+
+  document.getElementById('r-total').textContent = fmtBRL(total);
+  document.getElementById('r-count').textContent = incomes.length + ' receita' + (incomes.length !== 1 ? 's' : '');
+  document.getElementById('r-avg').textContent = fmtBRL(avg);
+  document.getElementById('r-max').textContent = maxInc ? fmtBRL(maxInc.amount) : fmtBRL(0);
+  document.getElementById('r-max-desc').textContent = maxInc ? maxInc.description : '—';
+}
+
+function renderIncomes() {
+  const list = document.getElementById('incomeList');
+  if (incomes.length === 0) {
+    list.innerHTML = '<div class="no-data">Nenhuma receita registrada neste mês. Adicione acima!</div>';
+    return;
+  }
+
+  const sourceIcons = {
+    'Salário': '💼', 'Freelance': '💻', 'Renda Extra': '💡',
+    'Vale': '🎫', 'Pix Recebido': '📲', 'Investimentos': '📈', 'Outros': '💰'
+  };
+
+  list.innerHTML = incomes.map(i => {
+    const icon = sourceIcons[i.source] || '💰';
+    return `<div class="tx-item">
+      <div class="tx-icon" style="background:var(--green-bg);">${icon}</div>
+      <div class="tx-info">
+        <div class="tx-desc">${i.description}</div>
+        <div class="tx-meta">${i.user?.name || '—'} · ${fmtDate(i.received_date)} · ${i.source}</div>
+      </div>
+      ${i.monthly_average ? `<div style="font-size:11px;color:var(--text-3);margin-right:8px;">média ${fmtBRL(i.monthly_average)}</div>` : ''}
+      <div class="tx-amount income">+${fmtBRL(i.amount)}</div>
+      <button class="tx-del" onclick="deleteIncome(${i.id})" title="Excluir">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function addIncome() {
+  const desc = document.getElementById('r-desc').value.trim();
+  const val = parseFloat(document.getElementById('r-val').value);
+  const avg = parseFloat(document.getElementById('r-avg-in').value) || val;
+  const source = document.getElementById('r-source').value;
+  const date = document.getElementById('r-date').value;
+
+  if (!desc || isNaN(val) || val <= 0) return toast('Preencha descrição e valor', 'error');
+
+  const res = await apiPost('/api/incomes', {
+    description: desc, amount: val, monthly_average: avg,
+    source, received_date: date
+  });
+
+  if (res?.success) {
+    toast('Receita registrada! 💚');
+    document.getElementById('r-desc').value = '';
+    document.getElementById('r-val').value = '';
+    document.getElementById('r-avg-in').value = '';
+    await loadIncomes();
+  } else {
+    toast('Erro ao salvar', 'error');
+  }
+}
+
+async function deleteIncome(id) {
+  if (!confirm('Excluir esta receita?')) return;
+  const res = await apiDelete(`/api/incomes/${id}`);
+  if (res?.success) {
+    toast('Excluída!');
+    await loadIncomes();
+  }
+}
+
+function onMonthChange() { loadIncomes(); }
+
+init();
+</script>
+{% endblock %}

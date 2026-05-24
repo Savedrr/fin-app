@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}Relatórios{% endblock %}
+{% block page_title %}Relatórios & Análise{% endblock %}
+
+{% block content %}
+<!-- Tabs -->
+<div style="display:flex;gap:4px;margin-bottom:1.5rem;background:var(--bg-3);border-radius:var(--radius-sm);padding:4px;width:fit-content;">
+  <button class="btn btn-sm" id="tab-overview" onclick="switchTab('overview')" style="background:var(--bg-5);color:var(--text);">Visão Geral</button>
+  <button class="btn btn-sm" id="tab-analysis" onclick="switchTab('analysis')" style="background:transparent;color:var(--text-3);">Análise IA</button>
+  <button class="btn btn-sm" id="tab-compare" onclick="switchTab('compare')" style="background:transparent;color:var(--text-3);">Comparativo</button>
+</div>
+
+<!-- Overview Tab -->
+<div id="panel-overview">
+  <div class="charts-grid" style="margin-bottom:1.5rem;">
+    <div class="card">
+      <div class="card-title">Distribuição por Categoria</div>
+      <div class="chart-container"><canvas id="pieChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Receitas vs Gastos (6 meses)</div>
+      <div class="chart-container"><canvas id="lineChart"></canvas></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Resumo por Categoria</div>
+    <div id="catSummary" class="tx-list"><div class="no-data">Carregando...</div></div>
+  </div>
+</div>
+
+<!-- Analysis Tab -->
+<div id="panel-analysis" style="display:none;">
+  <div class="card mb-2">
+    <div class="card-title">Análise Inteligente 🤖</div>
+    <div id="aiAnalysis">
+      <div style="text-align:center;padding:2rem;">
+        <button class="btn btn-primary" onclick="loadAnalysis()" id="loadAnalysisBtn">
+          ✨ Gerar Análise com IA
+        </button>
+        <p style="font-size:13px;color:var(--text-3);margin-top:1rem;">Clique para gerar uma análise financeira personalizada com recomendações.</p>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Dicas de Economia</div>
+    <div id="tips-container"><div class="no-data">Gere a análise acima para ver dicas personalizadas.</div></div>
+  </div>
+</div>
+
+<!-- Compare Tab -->
+<div id="panel-compare" style="display:none;">
+  <div class="card mb-2">
+    <div class="card-title">Evolução Mensal</div>
+    <div class="chart-container" style="height:280px;"><canvas id="barChart"></canvas></div>
+  </div>
+  <div id="monthlyTable" class="card">
+    <div class="card-title">Tabela Comparativa</div>
+    <div id="tableContent"><div class="no-data">Carregando...</div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let pieChart = null, lineChart = null, barChart = null;
+
+function switchTab(tab) {
+  ['overview','analysis','compare'].forEach(t => {
+    document.getElementById(`panel-${t}`).style.display = t === tab ? '' : 'none';
+    const btn = document.getElementById(`tab-${t}`);
+    btn.style.background = t === tab ? 'var(--bg-5)' : 'transparent';
+    btn.style.color = t === tab ? 'var(--text)' : 'var(--text-3)';
+  });
+  if (tab === 'compare') loadCompare();
+}
+
+async function loadOverview() {
+  const data = await apiGet(`/api/dashboard?month=${AppState.month}&year=${AppState.year}`);
+  if (!data) return;
+
+  // Pie chart
+  if (data.categories.length > 0) {
+    const ctx = document.getElementById('pieChart');
+    if (pieChart) pieChart.destroy();
+    pieChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: data.categories.map(c => c.name),
+        datasets: [{
+          data: data.categories.map(c => c.total),
+          backgroundColor: data.categories.map(c => c.color + 'CC'),
+          borderColor: data.categories.map(c => c.color),
+          borderWidth: 1,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12, padding: 8 } },
+          tooltip: { callbacks: { label: ctx => ` ${fmtBRL(ctx.raw)}` } }
+        },
+        cutout: '60%'
+      }
+    });
+  }
+
+  // Line chart (6 months)
+  const monthly = await apiGet('/api/reports/monthly');
+  if (monthly) {
+    const ctx2 = document.getElementById('lineChart');
+    if (lineChart) lineChart.destroy();
+    lineChart = new Chart(ctx2, {
+      type: 'line',
+      data: {
+        labels: monthly.map(m => m.label),
+        datasets: [
+          {
+            label: 'Receitas',
+            data: monthly.map(m => m.income),
+            borderColor: '#1DB976', backgroundColor: 'rgba(29,185,118,0.1)',
+            fill: true, tension: 0.4, pointRadius: 4,
+          },
+          {
+            label: 'Gastos',
+            data: monthly.map(m => m.expenses),
+            borderColor: '#EF4444', backgroundColor: 'rgba(239,68,68,0.1)',
+            fill: true, tension: 0.4, pointRadius: 4,
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 12 } } },
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { callback: v => 'R$' + (v/1000).toFixed(1) + 'k' }
+          }
+        }
+      }
+    });
+  }
+
+  // Category summary table
+  const catSummary = document.getElementById('catSummary');
+  if (data.categories.length === 0) {
+    catSummary.innerHTML = '<div class="no-data">Nenhum gasto registrado neste mês.</div>';
+  } else {
+    const totalAll = data.categories.reduce((a, c) => a + c.total, 0);
+    catSummary.innerHTML = data.categories.map(c => {
+      const pct = totalAll > 0 ? (c.total / totalAll * 100).toFixed(1) : '0';
+      return `<div class="tx-item">
+        <div class="tx-icon" style="background:${c.color}22;">${c.icon}</div>
+        <div class="tx-info">
+          <div class="tx-desc">${c.name}</div>
+          <div style="margin-top:4px;">
+            <div class="progress-track" style="height:4px;">
+              <div class="progress-fill" style="width:${pct}%;background:${c.color};"></div>
+            </div>
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:12px;">
+          <div style="font-weight:600;font-size:14px;">${fmtBRL(c.total)}</div>
+          <div style="font-size:11px;color:var(--text-3);">${pct}%</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function loadAnalysis() {
+  const btn = document.getElementById('loadAnalysisBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Analisando...';
+
+  const data = await apiGet(`/api/dashboard?month=${AppState.month}&year=${AppState.year}`);
+  if (!data) { btn.disabled = false; return; }
+
+  const cats = data.categories.map(c => `${c.name}: ${fmtBRL(c.total)}`).join(', ');
+
+  try {
+    const res = await apiPost('/api/chat', {
+      message: `Faça uma análise financeira completa e detalhada deste mês. 
+      Renda: ${fmtBRL(data.total_income)}, Gastos totais: ${fmtBRL(data.total_spent)}, 
+      Saldo: ${fmtBRL(data.balance)}, Comprometimento: ${data.pct_committed}%, 
+      Categorias: ${cats}. 
+      Dê pelo menos 4 sugestões concretas e práticas para economizar mais dinheiro.
+      Seja direto, use emojis, formate bem a resposta.`,
+      history: []
+    });
+
+    document.getElementById('aiAnalysis').innerHTML = `
+      <div style="font-size:14px;line-height:1.8;color:var(--text-2);white-space:pre-wrap;">${res?.message || 'Erro ao gerar análise.'}</div>
+    `;
+
+    // Generate tips
+    document.getElementById('tips-container').innerHTML = data.alerts.map(a => `
+      <div class="alert ${a.type}" style="margin-bottom:8px;">
+        <span class="alert-icon">${a.icon}</span>
+        <span>${a.text}</span>
+      </div>
+    `).join('') || '<div class="no-data">Sem alertas neste período.</div>';
+
+  } catch(e) {
+    document.getElementById('aiAnalysis').innerHTML = '<div class="no-data">Erro ao conectar com a IA. Verifique a chave da API no .env</div>';
+  }
+  btn.disabled = false;
+}
+
+async function loadCompare() {
+  const monthly = await apiGet('/api/reports/monthly');
+  if (!monthly) return;
+
+  const ctx = document.getElementById('barChart');
+  if (barChart) barChart.destroy();
+  barChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: monthly.map(m => m.label),
+      datasets: [
+        { label: 'Receitas', data: monthly.map(m => m.income), backgroundColor: 'rgba(29,185,118,0.75)', borderRadius: 6 },
+        { label: 'Gastos', data: monthly.map(m => m.expenses), backgroundColor: 'rgba(239,68,68,0.75)', borderRadius: 6 },
+        { label: 'Saldo', data: monthly.map(m => m.balance), backgroundColor: 'rgba(59,130,246,0.75)', borderRadius: 6 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { size: 12 }, boxWidth: 12 } } },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { callback: v => 'R$' + (v/1000).toFixed(1) + 'k' }
+        }
+      }
+    }
+  });
+
+  // Table
+  document.getElementById('tableContent').innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;padding:10px 8px;color:var(--text-3);font-weight:500;">Mês</th>
+            <th style="text-align:right;padding:10px 8px;color:var(--green);font-weight:500;">Receitas</th>
+            <th style="text-align:right;padding:10px 8px;color:var(--red);font-weight:500;">Gastos</th>
+            <th style="text-align:right;padding:10px 8px;color:var(--blue);font-weight:500;">Saldo</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${monthly.map(m => `
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:10px 8px;font-weight:500;">${m.label}</td>
+              <td style="padding:10px 8px;text-align:right;color:var(--green);">${fmtBRL(m.income)}</td>
+              <td style="padding:10px 8px;text-align:right;color:var(--red);">${fmtBRL(m.expenses)}</td>
+              <td style="padding:10px 8px;text-align:right;color:${m.balance >= 0 ? 'var(--green)' : 'var(--red)'};">${fmtBRL(m.balance)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function onMonthChange() { loadOverview(); }
+
+loadOverview();
+</script>
+{% endblock %}

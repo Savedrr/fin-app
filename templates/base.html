@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FinanceApp">
+  <meta name="theme-color" content="#1DB976">
+  <meta name="description" content="Controle financeiro familiar do casal">
+
+  <title>{% block title %}FinanceApp{% endblock %} — Controle Financeiro Familiar</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/static/manifest.json">
+
+  <!-- Apple Touch Icons -->
+  <link rel="apple-touch-icon" href="/static/icons/icon-152.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/static/icons/icon-152.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/icons/icon-192.png">
+
+  <!-- Splash screens iOS -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- Fonts & Chart -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+  {% if session.get('user_id') %}
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <span class="logo-icon">₊</span>
+        <span class="logo-text">Finance<strong>App</strong></span>
+      </div>
+      <button class="sidebar-close" onclick="toggleSidebar()" id="sidebarClose">✕</button>
+    </div>
+
+    <div class="user-card">
+      <div class="user-avatar" style="background:{{ session.get('user_color','#1DB976') }}">
+        {{ session.get('user_name', 'U')[0].upper() }}
+      </div>
+      <div class="user-info">
+        <div class="user-name">{{ session.get('user_name', 'Usuário') }}</div>
+        <div class="user-label">Online agora</div>
+      </div>
+    </div>
+
+    <nav class="nav-links">
+      <a href="/dashboard" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <span class="nav-icon">⬡</span> Dashboard
+      </a>
+      <a href="/chat" class="nav-link {% if request.endpoint == 'chat' %}active{% endif %}">
+        <span class="nav-icon">◎</span> Chat IA
+        <span class="nav-badge">novo</span>
+      </a>
+      <a href="/lancamentos" class="nav-link {% if request.endpoint == 'lancamentos' %}active{% endif %}">
+        <span class="nav-icon">◈</span> Lançamentos
+      </a>
+      <a href="/fixas" class="nav-link {% if request.endpoint == 'fixas' %}active{% endif %}">
+        <span class="nav-icon">◷</span> Contas Fixas
+      </a>
+      <a href="/receitas" class="nav-link {% if request.endpoint == 'receitas' %}active{% endif %}">
+        <span class="nav-icon">◉</span> Receitas
+      </a>
+      <a href="/relatorios" class="nav-link {% if request.endpoint == 'relatorios' %}active{% endif %}">
+        <span class="nav-icon">◫</span> Relatórios
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <a href="/logout" class="logout-btn">Sair →</a>
+    </div>
+  </nav>
+
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+  <div class="main-layout">
+    <header class="topbar">
+      <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+      <div class="topbar-title">{% block page_title %}{% endblock %}</div>
+      <div class="topbar-actions">
+        <div class="month-selector">
+          <button class="month-btn" id="prevMonth">‹</button>
+          <span class="month-label" id="monthLabel">—</span>
+          <button class="month-btn" id="nextMonth">›</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+
+    <!-- Bottom Nav Mobile -->
+    <nav class="bottom-nav">
+      <a href="/dashboard" class="bn-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+        <span class="bn-icon">⬡</span>
+        <span class="bn-label">Início</span>
+      </a>
+      <a href="/chat" class="bn-item {% if request.endpoint == 'chat' %}active{% endif %}">
+        <span class="bn-icon">◎</span>
+        <span class="bn-label">Chat IA</span>
+      </a>
+      <a href="/lancamentos" class="bn-item {% if request.endpoint == 'lancamentos' %}active{% endif %}">
+        <span class="bn-icon">◈</span>
+        <span class="bn-label">Gastos</span>
+      </a>
+      <a href="/fixas" class="bn-item {% if request.endpoint == 'fixas' %}active{% endif %}">
+        <span class="bn-icon">◷</span>
+        <span class="bn-label">Fixas</span>
+      </a>
+      <a href="/relatorios" class="bn-item {% if request.endpoint == 'relatorios' %}active{% endif %}">
+        <span class="bn-icon">◫</span>
+        <span class="bn-label">Relatórios</span>
+      </a>
+    </nav>
+  </div>
+
+  {% else %}
+  {% block auth_content %}{% endblock %}
+  {% endif %}
+
+  <!-- Banner de instalação PWA -->
+  <div id="installBanner" style="display:none;">
+    <div class="install-icon">₊</div>
+    <div class="install-text">
+      <strong>Instalar FinanceApp</strong>
+      <span>Adicione à tela inicial do celular</span>
+    </div>
+    <button class="install-btn" id="installBtn">Instalar</button>
+    <button class="install-close" onclick="document.getElementById('installBanner').style.display='none'">✕</button>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+  <!-- Registra Service Worker PWA -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/sw.js')
+          .then(reg => console.log('SW registrado:', reg.scope))
+          .catch(err => console.log('SW erro:', err));
+      });
+    }
+
+    // Captura evento de instalação PWA
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredPrompt = e;
+      const banner = document.getElementById('installBanner');
+      if (banner) banner.style.display = 'flex';
+    });
+
+    const installBtn = document.getElementById('installBtn');
+    if (installBtn) {
+      installBtn.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        document.getElementById('installBanner').style.display = 'none';
+      });
+    }
+
+    window.addEventListener('appinstalled', () => {
+      document.getElementById('installBanner').style.display = 'none';
+    });
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
